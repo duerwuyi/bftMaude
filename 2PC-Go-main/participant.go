@@ -16,15 +16,7 @@ var randomNumber = rand.New(rand.NewSource(0))
 var order int
 
 func main() {
-	// Listen for incoming connections.
-	//Connect to the coordinator
-	conn, err := net.Dial("tcp", coordinatorNetwork.Host+":"+coordinatorNetwork.Port)
-	if err != nil {
-		fmt.Println("Error connection:", err.Error())
-		os.Exit(1)
-	}
-
-	n, err = strconv.Atoi(os.Args[1])
+	n, err := strconv.Atoi(os.Args[1])
 	if err != nil {
 		fmt.Println("excepted an index of participant network, actual: ", err.Error())
 		os.Exit(1)
@@ -41,7 +33,7 @@ func main() {
 	//tcp server for ctp
 	listener := serve(netConfig.Host, netConfig.Port)
 	defer listener.Close()
-
+	time.Sleep(time.Second * 5)
 	connToOther := make([]net.Conn, 0)
 	for i, participant := range participantNetworks {
 		if i == n {
@@ -51,6 +43,8 @@ func main() {
 		if err != nil {
 			fmt.Println("Error connection:", err.Error())
 			os.Exit(1)
+		} else {
+			fmt.Println("Connected to another participant")
 		}
 		connToOther = append(connToOther, c)
 	}
@@ -68,13 +62,24 @@ func main() {
 		connFromOther = append(connFromOther, c)
 		go func(c net.Conn) {
 			//listen for ctp
-			c.SetReadDeadline(time.Time{})
-			message := receive(c)
-			if message.Action == "CTP" {
-				send(c, allMessage[message.Order])
+			for true {
+				c.SetReadDeadline(time.Time{})
+				message := receive(c)
+				if message.Action == "CTP" {
+					send(c, allMessage[message.Order])
+				}
 			}
 		}(c)
 
+	}
+
+	//Connect to the coordinator
+	conn, err := net.Dial("tcp", coordinatorNetwork.Host+":"+coordinatorNetwork.Port)
+	if err != nil {
+		fmt.Println("Error connection:", err.Error())
+		os.Exit(1)
+	} else {
+		fmt.Println("Connected to coordinator")
 	}
 
 	s := rand.NewSource(time.Now().Unix())
@@ -87,21 +92,31 @@ func main() {
 			break
 		}
 		if message.Action != "PREPARE" {
+			if message.Order <= order {
+				continue
+			}
 			fmt.Println(strconv.Itoa(message.Order), ", ", message.Action, " not a prepare message")
 			break
 		}
 		order = message.Order
 		handlePrepare(conn, message)
 		//phase 2
-		message = receiveTW(conn) //timeout caused by msg loss
+		if n == 0 {
+			message = receiveTW(conn) //timeout caused by msg loss
+		} else {
+			message = receive(conn)
+		}
 		if message.Action == "" {
 			//ctp
 			for _, c := range connToOther {
-				send(c, Message{Action: "CTP", Order: order})
-				m := receive(c)
-				if m.Action != "" { //not unknown
-					message = m
-					break
+				for true {
+					send(c, Message{Action: "CTP", Order: order})
+					m := receive(c)
+					if m.Action != "" { //not unknown
+						message = m
+						break
+					}
+					time.Sleep(TIMEOUT)
 				}
 			}
 		}
@@ -130,14 +145,14 @@ func getNameFile() string {
 }
 
 func handleAbort(conn net.Conn, message Message) {
+	allMessage[message.Order] = Message{"ABORT", message.Order}
 	//Write the abort in log file
 	writeToFile(getNameFile(), "p"+strconv.Itoa(n)+" abort, order "+strconv.Itoa(message.Order))
-	allMessage[message.Order] = Message{"ABORT", message.Order}
 }
 
 func handleCommit(conn net.Conn, message Message) {
-	writeToFile(getNameFile(), "p"+strconv.Itoa(n)+" commit, order "+strconv.Itoa(message.Order))
 	allMessage[message.Order] = Message{"COMMIT", message.Order}
+	writeToFile(getNameFile(), "p"+strconv.Itoa(n)+" commit, order "+strconv.Itoa(message.Order))
 }
 
 func sendACK(conn net.Conn, message Message) {
