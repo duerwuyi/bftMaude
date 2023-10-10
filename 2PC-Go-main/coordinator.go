@@ -24,12 +24,13 @@ func main() {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
-	_, err = os.Create("time_duration.txt")
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-
+	/*
+		_, err = os.Create("time_duration.txt")
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+	*/
 	// Listen for two participant
 	participants := make([]net.Conn, 0)
 
@@ -98,9 +99,9 @@ func receivePrepare(participants []net.Conn, order int) bool {
 }
 
 func responseToAll(participants []net.Conn, order int, isAParticipantAbort bool) {
-	for _, participant := range participants {
+	for i, participant := range participants {
 		a := randomNum.Float64()
-		if a <= LOST_RATE {
+		if a <= LOST_RATE && i == 1 {
 			log.Default().Println("Message loss.")
 			continue
 		}
